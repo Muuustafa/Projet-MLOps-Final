@@ -1,0 +1,12 @@
+data:
+  file: "data/output.csv"
+  target: "price"
+
+models:
+  - "LinearRegression"
+  - "RandomForestRegressor" 
+  - "GradientBoostingRegressor"
+
+api:
+  host: "127.0.0.1"
+  port: 8000
