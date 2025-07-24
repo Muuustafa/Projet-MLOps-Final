@@ -2,36 +2,18 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Copier les requirements d'abord (pour le cache Docker)
+# Copier requirements et installer
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Créer les dossiers nécessaires
-RUN mkdir -p data models logs
+# Copier tout le reste
+COPY . .
 
-# Copier les données AVANT le code
-COPY data/ ./data/
-# Copier le modèle s'il existe déjà
-COPY models/ ./models/ 2>/dev/null || true
+# Créer dossiers
+RUN mkdir -p models logs
 
-# Copier le code source
-COPY *.py ./
-COPY train.py ./
-COPY api.py ./
-# Copier main.py s'il existe
-COPY main.py ./ 2>/dev/null || true
-
-# Exposer le port
+# Port
 EXPOSE 8000
 
-# Variables d'environnement
-ENV PYTHONPATH=/app
-ENV HOST=0.0.0.0
-ENV PORT=8000
-
-# Sanity check - vérifier que les données sont là
-RUN ls -la data/ || echo "ATTENTION: Dossier data vide"
-RUN test -f data/output.csv && echo "✓ Données trouvées" || echo "⚠️ data/output.csv manquant"
-
-# Commande de démarrage
+# Démarrer l'API
 CMD ["python", "-m", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
