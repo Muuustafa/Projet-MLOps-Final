@@ -20,18 +20,28 @@ jobs:
       uses: actions/setup-python@v4
       with:
         python-version: '3.11'
+        cache: 'pip'  # Cache pip pour accélérer
         
     - name: Install dependencies
       run: |
+        pip install --upgrade pip
         pip install -r requirements.txt
+        pip install httpx pytest  # Dépendances pour les tests
         
     - name: Run tests
       run: |
+        echo "🧪 Lancement des tests MLOps..."
         python test_app.py
         
-    - name: Train model
+    - name: Ensure model exists
       run: |
-        python train.py
+        if [ ! -f "models/model.pkl" ]; then
+          echo "🔄 Modèle manquant, entraînement..."
+          mkdir -p models
+          python train.py
+        else
+          echo "✅ Modèle trouvé"
+        fi
         
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3

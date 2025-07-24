@@ -1,0 +1,18 @@
+2025-07-24 20:07:52,198 - INFO - ====== DÉBUT ENTRAÎNEMENT MLOPs ======
+2025-07-24 20:07:52,200 - INFO - Dataset trouvé: data/output.csv
+2025-07-24 20:07:52,237 - INFO - Données chargées: (4600, 18)
+2025-07-24 20:07:52,317 - INFO - Entraînement LinearRegression...
+2025-07-24 20:07:52,383 - INFO - LinearRegression - R^2 CV: 0.5370 0.0460
+2025-07-24 20:07:52,383 - INFO - Entraînement RandomForestRegressor...
+2025-07-24 20:08:49,942 - INFO - RandomForestRegressor - R^2 CV: 0.5801 0.0833
+2025-07-24 20:08:49,943 - INFO - Entraînement GradientBoostingRegressor...
+2025-07-24 20:08:58,415 - INFO - GradientBoostingRegressor - R^2 CV: 0.5810 0.0871
+2025-07-24 20:08:58,416 - INFO - Meilleur modèle: GradientBoostingRegressor (R^2 = 0.5810)
+2025-07-24 20:08:58,428 - INFO - Performance test - R^2: 0.0539, RMSE: 982270
+2025-07-24 20:08:58,457 - INFO - AUDIT: {'timestamp': '2025-07-24T20:08:58.457193', 'event_type': 'model_training', 'model_name': 'GradientBoostingRegressor', 'dataset_size': 4600, 'features_count': 16, 'performance_r2': 0.05392212047752987, 'performance_rmse': 982269.8523665571, 'training_duration_minutes': 1.1043127333333334}
+2025-07-24 20:08:58,458 - INFO - === ENTRAÎNEMENT TERMINÉ en 66.3s ===
+2025-07-24 20:08:58,712 - INFO - Modèle chargé: GradientBoostingRegressor
+2025-07-24 20:08:58,713 - INFO - AUDIT: {'timestamp': '2025-07-24T20:08:58.713271', 'event_type': 'api_startup', 'model_name': 'GradientBoostingRegressor', 'model_performance_r2': 0.05392212047752987}
+2025-07-24 20:08:58,718 - INFO - HTTP Request: GET http://testserver/health "HTTP/1.1 200 OK"
+2025-07-24 20:08:58,736 - INFO - AUDIT: {'timestamp': '2025-07-24T20:08:58.733122', 'event_type': 'prediction', 'features': {'bedrooms': 3, 'bathrooms': 2.0, 'sqft_living': 1800, 'sqft_lot': 5000, 'floors': 2.0, 'waterfront': False, 'view': 2, 'condition': 3, 'sqft_above': 1600, 'sqft_basement': 200, 'city': 'Seattle', 'statezip': 'WA 98101', 'country': 'USA'}, 'prediction': 470948.1677188521, 'duration_seconds': 0.011091232299804688, 'model_name': 'GradientBoostingRegressor', 'status': 'success'}
+2025-07-24 20:08:58,738 - INFO - HTTP Request: POST http://testserver/predict "HTTP/1.1 200 OK"
