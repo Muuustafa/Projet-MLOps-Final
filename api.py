@@ -106,7 +106,7 @@ def prepare_features(data: HouseData) -> np.ndarray:
     }])
     
     # Feature engineering
-    df['house_age'] = 2024 - 1990
+    df['house_age'] = 2025 - 1990
     df['is_renovated'] = 0
     df['total_sqft'] = df['sqft_living'] + df['sqft_basement']
     

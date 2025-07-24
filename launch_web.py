@@ -2,209 +2,225 @@ import subprocess
 import sys
 import os
 import time
-import threading
+
+def check_model_exists():
+    """Vérifie si le modèle existe"""
+    if os.path.exists("models/model.pkl"):
+        try:
+            import joblib
+            model_package = joblib.load("models/model.pkl")
+            print(f"Modèle trouvé: {model_package.get('model_name', 'Unknown')}")
+            return True
+        except Exception as e:
+            print(f"Erreur chargement modèle: {e}")
+            return False
+    else:
+        print("Modèle non trouvé dans models/model.pkl")
+        return False
 
 def check_api_running():
-    """Vérifie si l'API est accessible"""
+    """Vérifie si l'API est accessible (optionnel)"""
     try:
         import requests
-        print("Test de connexion à l'API...")
-        response = requests.get("http://localhost:8000/health", timeout=10)
-        print(f"Réponse API: {response.status_code}")
+        response = requests.get("http://localhost:8000/health", timeout=5)
         return response.status_code == 200
-    except ImportError:
-        print("ERREUR: module 'requests' non installé. Installez avec: pip install requests")
-        return False
-    except requests.exceptions.ConnectionError:
-        print("API non accessible sur http://localhost:8000")
-        return False
-    except requests.exceptions.Timeout:
-        print("Timeout lors de la connexion à l'API")
-        return False
-    except Exception as e:
-        print(f"Erreur lors du test API: {e}")
+    except:
         return False
 
-def check_api_process():
-    """Vérifie si un processus API tourne déjà"""
-    try:
-        import psutil
-        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-            try:
-                cmdline = ' '.join(proc.info['cmdline'] or [])
-                if 'main.py' in cmdline and 'api' in cmdline:
-                    print(f"Processus API trouvé: PID {proc.info['pid']}")
-                    return True
-                if 'uvicorn' in cmdline and ('main:app' in cmdline or 'api:app' in cmdline):
-                    print(f"Processus uvicorn trouvé: PID {proc.info['pid']}")
-                    return True
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
-        return False
-    except ImportError:
-        print("Module psutil non disponible, utilisation méthode basique")
-        return False
-
-def start_api_background():
-    """Démarre l'API en arrière-plan"""
-    print("Démarrage de l'API en arrière-plan...")
-    
-    try:
-        # Plusieurs tentatives de commandes possibles
-        commands_to_try = [
-            [sys.executable, "main.py", "api"],
-            [sys.executable, "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"],
-            [sys.executable, "-m", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"],
-            ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-        ]
-        
-        process = None
-        for cmd in commands_to_try:
-            try:
-                print(f"Tentative commande: {' '.join(cmd)}")
-                process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
-                time.sleep(2)  # Laisser le temps de démarrer
+def train_model_if_needed():
+    """Entraîne le modèle s'il n'existe pas"""
+    if not os.path.exists("models/model.pkl"):
+        print("Modèle manquant, tentative d'entraînement...")
+        try:
+            os.makedirs("models", exist_ok=True)
+            
+            # Vérifier si train.py existe
+            if not os.path.exists("train.py"):
+                print("ERREUR: train.py non trouvé")
+                return False
                 
-                # Vérifier si le processus est encore vivant
-                if process.poll() is None:
-                    print("Processus démarré avec succès")
-                    break
-                else:
-                    stdout, stderr = process.communicate()
-                    print(f"Commande échouée. Stdout: {stdout[:200]}... Stderr: {stderr[:200]}...")
-                    process = None
-            except FileNotFoundError:
-                print(f"Commande non trouvée: {cmd[0]}")
-                continue
-            except Exception as e:
-                print(f"Erreur avec commande {cmd[0]}: {e}")
-                continue
-        
-        if process is None:
-            print("ERREUR: Impossible de démarrer l'API avec aucune commande")
-            return False
-        
-        # Attendre que l'API soit prête
-        print("Attente que l'API soit prête...")
-        for i in range(60):  # 60 secondes max
-            if check_api_running():
-                print("API prête et accessible!")
+            # Vérifier si les données existent
+            if not os.path.exists("data/output.csv"):
+                print("ERREUR: data/output.csv non trouvé")
+                return False
+            
+            print("Lancement de l'entraînement...")
+            result = subprocess.run([sys.executable, "train.py"], 
+                                  capture_output=True, text=True, timeout=300)
+            
+            if result.returncode == 0:
+                print("Entraînement réussi")
                 return True
-            time.sleep(1)
-            if i % 10 == 0 and i > 0:
-                print(f"Attente API... ({i}/60s)")
-                # Vérifier si le processus est encore vivant
-                if process.poll() is not None:
-                    stdout, stderr = process.communicate()
-                    print(f"Processus API s'est arrêté. Stdout: {stdout[-500:]}")
-                    print(f"Stderr: {stderr[-500:]}")
-                    return False
-        
-        print("ATTENTION: API lente à répondre, mais processus actif")
-        return True
-        
-    except Exception as e:
-        print(f"Erreur démarrage API: {e}")
-        return False
-
-def test_manual_commands():
-    """Affiche les commandes à tester manuellement"""
-    print("\nCommandes à tester manuellement:")
-    print("1. python main.py api")
-    print("2. uvicorn main:app --host 0.0.0.0 --port 8000")
-    print("3. uvicorn api:app --host 0.0.0.0 --port 8000")
-    print("4. python -m uvicorn main:app --host 0.0.0.0 --port 8000")
-    print("\nTestez chaque commande dans un terminal séparé")
-    print("Puis relancez ce script")
+            else:
+                print(f"Entraînement échoué: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            print("Entraînement timeout (5 minutes)")
+            return False
+        except Exception as e:
+            print(f"Erreur entraînement: {e}")
+            return False
+    
+    return True
 
 def launch_web_interface():
-    """Lance l'interface web MLOps"""
+    """Lance l'interface web avec modèle direct"""
     print("=" * 60)
-    print("LANCEMENT DE L'INTERFACE WEB MLOps")
+    print("INTERFACE WEB MLOps - MODE MODELE DIRECT")
     print("=" * 60)
     
-    # Vérifier d'abord si l'API répond
-    print("Étape 1: Vérification de l'API...")
-    if check_api_running():
-        print("API déjà accessible sur http://localhost:8000")
-    else:
-        print("API non accessible")
+    # Étape 1: Vérifier et préparer le modèle
+    print("Étape 1: Vérification du modèle...")
+    
+    if not check_model_exists():
+        print("Tentative d'entraînement du modèle...")
+        if not train_model_if_needed():
+            print("ERREUR: Impossible de créer/charger le modèle")
+            print("\nSolutions:")
+            print("1. Vérifiez que data/output.csv existe")
+            print("2. Lancez manuellement: python train.py")
+            print("3. Vérifiez les logs d'erreur")
+            return
         
-        # Vérifier si un processus API tourne
-        print("Étape 2: Recherche de processus API...")
-        if check_api_process():
-            print("Processus API détecté mais non accessible")
-            print("L'API met peut-être du temps à démarrer...")
-            
-            # Attendre un peu plus
-            for i in range(30):
-                if check_api_running():
-                    print("API maintenant accessible!")
-                    break
-                time.sleep(2)
-                if i % 5 == 0:
-                    print(f"Attente... ({i*2}/60s)")
-            else:
-                print("API toujours non accessible après attente")
-                test_manual_commands()
-                return
-        else:
-            print("Aucun processus API détecté")
-            print("Étape 3: Tentative de démarrage automatique...")
-            
-            if not start_api_background():
-                print("ECHEC du démarrage automatique")
-                test_manual_commands()
-                return
+        if not check_model_exists():
+            print("ERREUR: Modèle toujours non disponible après entraînement")
+            return
     
-    # Vérification finale
-    if not check_api_running():
-        print("ERREUR: API toujours non accessible")
-        print("Veuillez démarrer l'API manuellement:")
-        test_manual_commands()
+    print("✓ Modèle disponible pour Streamlit")
+    
+    # Étape 2: Vérifier l'API (optionnel)
+    print("\nÉtape 2: Vérification API (optionnelle)...")
+    api_available = check_api_running()
+    if api_available:
+        print("✓ API également disponible sur http://localhost:8000")
+    else:
+        print("- API non disponible (ce n'est pas grave, on utilise le modèle direct)")
+    
+    # Étape 3: Lancer Streamlit
+    print("\nÉtape 3: Lancement de Streamlit...")
+    
+    # Vérifier les dépendances
+    try:
+        import streamlit
+        print("✓ Streamlit installé")
+    except ImportError:
+        print("ERREUR: Streamlit non installé")
+        print("Installez avec: pip install streamlit plotly")
         return
+    
+    # Vérifier le fichier web_ui.py
+    if not os.path.exists("web_ui.py"):
+        print("ERREUR: Fichier web_ui.py non trouvé")
+        print("Créez le fichier web_ui.py dans le répertoire courant")
+        return
+    
+    # Créer un fichier de configuration pour Streamlit
+    config_content = f"""
+# Configuration automatique pour Streamlit
+MODEL_PATH = "models/model.pkl"
+API_URL = "http://localhost:8000"
+API_AVAILABLE = {api_available}
+USE_DIRECT_MODEL = True
+"""
+    
+    with open("streamlit_config.py", "w") as f:
+        f.write(config_content)
+    
+    print("✓ Configuration Streamlit créée")
     
     # Lancer Streamlit
     try:
         print("\n" + "=" * 60)
-        print("LANCEMENT DE STREAMLIT")
+        print("DÉMARRAGE STREAMLIT")
         print("=" * 60)
-        print("URL: http://localhost:8501")
-        print("Pour arrêter: Ctrl+C")
+        print("🌐 URL: http://localhost:8501")
+        print("🛑 Pour arrêter: Ctrl+C")
+        print("📊 Mode: Modèle direct + API optionnelle")
         print("-" * 60)
         
-        # Vérifier si streamlit est installé
-        try:
-            import streamlit
-        except ImportError:
-            print("ERREUR: Streamlit non installé")
-            print("Installez avec: pip install streamlit plotly")
-            return
+        # Variables d'environnement pour Streamlit
+        env = os.environ.copy()
+        env["STREAMLIT_USE_DIRECT_MODEL"] = "true"
+        env["STREAMLIT_MODEL_PATH"] = "models/model.pkl"
         
-        # Vérifier si le fichier web_ui.py existe
-        if not os.path.exists("web_ui.py"):
-            print("ERREUR: Fichier web_ui.py non trouvé")
-            print("Assurez-vous que web_ui.py est dans le répertoire courant")
-            return
-        
-        # Lancer streamlit
         subprocess.run([
             sys.executable, "-m", "streamlit", "run", "web_ui.py",
             "--server.port", "8501",
             "--server.address", "localhost",
             "--browser.gatherUsageStats", "false"
-        ])
+        ], env=env)
         
     except KeyboardInterrupt:
-        print("\nInterface fermée par l'utilisateur")
+        print("\n✓ Interface fermée par l'utilisateur")
     except Exception as e:
-        print(f"Erreur Streamlit: {e}")
+        print(f"✗ Erreur Streamlit: {e}")
         print("Vérifiez l'installation: pip install streamlit plotly")
+    finally:
+        # Nettoyer le fichier de config
+        if os.path.exists("streamlit_config.py"):
+            os.remove("streamlit_config.py")
+
+def start_api_only():
+    """Lance seulement l'API (fonction séparée)"""
+    print("=" * 60)
+    print("DÉMARRAGE API SEULEMENT")
+    print("=" * 60)
+    
+    commands_to_try = [
+        [sys.executable, "-m", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"],
+        [sys.executable, "api.py"],
+        ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
+    ]
+    
+    for cmd in commands_to_try:
+        try:
+            print(f"Tentative: {' '.join(cmd)}")
+            subprocess.run(cmd)
+            break
+        except Exception as e:
+            print(f"Échec: {e}")
+            continue
+
+def show_menu():
+    """Affiche le menu de choix"""
+    print("=" * 60)
+    print("LANCEUR MLOps")
+    print("=" * 60)
+    print("1. Interface Web (modèle direct) - RECOMMANDÉ")
+    print("2. API seulement")
+    print("3. Vérifier le modèle")
+    print("4. Entraîner le modèle")
+    print("5. Quitter")
+    print("-" * 60)
+    
+    choice = input("Votre choix (1-5): ").strip()
+    
+    if choice == "1":
+        launch_web_interface()
+    elif choice == "2":
+        start_api_only()
+    elif choice == "3":
+        if check_model_exists():
+            print("✓ Modèle OK")
+        else:
+            print("✗ Problème avec le modèle")
+    elif choice == "4":
+        train_model_if_needed()
+    elif choice == "5":
+        print("Au revoir!")
+        sys.exit(0)
+    else:
+        print("Choix invalide")
+        show_menu()
 
 if __name__ == "__main__":
-    launch_web_interface()
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "--web":
+            launch_web_interface()
+        elif sys.argv[1] == "--api":
+            start_api_only()
+        else:
+            print("Usage: python launcher.py [--web|--api]")
+    else:
+        show_menu()

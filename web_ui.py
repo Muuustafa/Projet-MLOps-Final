@@ -1,295 +1,272 @@
 import streamlit as st
-import requests
-import json
 import pandas as pd
+import numpy as np
+import joblib
+import os
+import requests
+import time
+from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
-import time
 
 # Configuration de la page
 st.set_page_config(
-    page_title="MLOps House Price Predictor",
+    page_title="House Price Prediction",
     page_icon="🏠",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
-# CSS personnalisé pour le style
-st.markdown("""
-<style>
-    .main-header {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        padding: 2rem;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    
-    .metric-card {
-        background: white;
-        padding: 1rem;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        border-left: 4px solid #667eea;
-    }
-    
-    .prediction-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 2rem;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-        margin: 1rem 0;
-    }
-    
-    .feature-card {
-        background: #f8f9fa;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 0.5rem 0;
-        border: 1px solid #e9ecef;
-    }
-    
-    .stButton > button {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border: none;
-        border-radius: 25px;
-        padding: 0.5rem 2rem;
-        font-weight: bold;
-        transition: all 0.3s;
-    }
-    
-    .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-    }
-</style>
-""", unsafe_allow_html=True)
+# Variables globales
+MODEL_PATH = "models/model.pkl"
+API_URL = "http://localhost:8000"
 
-# Header principal
-st.markdown("""
-<div class="main-header">
-    <h1>🏠 MLOps House Price Predictor</h1>
-    <p>Prédiction intelligente de prix immobilier avec Machine Learning</p>
-</div>
-""", unsafe_allow_html=True)
+@st.cache_resource
+def load_direct_model():
+    """Charge le modèle directement depuis le fichier"""
+    try:
+        if os.path.exists(MODEL_PATH):
+            model_package = joblib.load(MODEL_PATH)
+            return model_package
+        else:
+            st.error(f"Modèle non trouvé: {MODEL_PATH}")
+            return None
+    except Exception as e:
+        st.error(f"Erreur chargement modèle: {e}")
+        return None
 
-# Sidebar stylée
-with st.sidebar:
-    st.markdown("### 🏗️ Caractéristiques de la Propriété")
-    
-    # Section Structure
-    st.markdown("**🏠 Structure**")
-    bedrooms = st.selectbox("Chambres", options=[1, 2, 3, 4, 5, 6], index=2)
-    bathrooms = st.selectbox("Salles de bain", options=[1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0], index=3)
-    floors = st.selectbox("Étages", options=[1.0, 1.5, 2.0, 2.5, 3.0], index=2)
-    
-    st.markdown("---")
-    
-    # Section Surface
-    st.markdown("**📐 Surfaces (pieds carrés)**")
-    sqft_living = st.slider("Surface habitable", 500, 5000, 1800, 50)
-    sqft_lot = st.slider("Surface terrain", 1000, 20000, 5000, 100)
-    sqft_above = st.slider("Surface au-dessus", 500, 4000, 1600, 50)
-    sqft_basement = st.slider("Surface sous-sol", 0, 2000, 200, 50)
-    
-    st.markdown("---")
-    
-    # Section Qualité
-    st.markdown("**⭐ Qualité & Vues**")
-    waterfront = st.toggle("🌊 Vue sur l'eau", value=False)
-    view = st.slider("Qualité de la vue (0-4)", 0, 4, 2)
-    condition = st.slider("État général (1-5)", 1, 5, 3)
-    
-    st.markdown("---")
-    
-    # Section Localisation
-    st.markdown("**📍 Localisation**")
-    city = st.selectbox("Ville", ["Seattle", "Bellevue", "Redmond", "Kirkland", "Tacoma"])
-    statezip = st.selectbox("Code postal", ["WA 98101", "WA 98102", "WA 98103", "WA 98104"])
+def check_api_available():
+    """Vérifie si l'API est disponible"""
+    try:
+        response = requests.get(f"{API_URL}/health", timeout=3)
+        return response.status_code == 200
+    except:
+        return False
 
-# Corps principal
-col1, col2 = st.columns([2, 1])
-
-with col1:
-    # Visualisation des caractéristiques
-    st.markdown("### 📊 Résumé des Caractéristiques")
-    
-    # Graphique radar
-    categories = ['Chambres', 'S.d.B', 'Étages', 'Vue', 'État']
-    values = [bedrooms/6*100, bathrooms/5*100, floors/3*100, view/4*100, condition/5*100]
-    
-    fig = go.Figure()
-    fig.add_trace(go.Scatterpolar(
-        r=values,
-        theta=categories,
-        fill='toself',
-        name='Propriété',
-        line=dict(color='#667eea', width=3),
-        fillcolor='rgba(102, 126, 234, 0.3)'
-    ))
-    
-    fig.update_layout(
-        polar=dict(
-            radialaxis=dict(visible=True, range=[0, 100])
-        ),
-        showlegend=False,
-        height=400,
-        title="Score des Caractéristiques (%)"
-    )
-    
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Comparaison des surfaces
-    surface_data = pd.DataFrame({
-        'Type': ['Habitable', 'Au-dessus', 'Sous-sol', 'Terrain'],
-        'Surface': [sqft_living, sqft_above, sqft_basement, sqft_lot],
-        'Couleur': ['#667eea', '#764ba2', '#f093fb', '#f5f7fa']
-    })
-    
-    fig2 = px.bar(surface_data, x='Type', y='Surface', 
-                  title="Répartition des Surfaces (sqft)",
-                  color='Type',
-                  color_discrete_sequence=['#667eea', '#764ba2', '#f093fb', '#a8edea'])
-    fig2.update_layout(showlegend=False, height=300)
-    
-    st.plotly_chart(fig2, use_container_width=True)
-
-with col2:
-    # Carte de prédiction
-    st.markdown("### 🔮 Prédiction")
-    
-    # Bouton de prédiction stylé
-    predict_button = st.button("🚀 PRÉDIRE LE PRIX", use_container_width=True)
-    
-    if predict_button:
-        # Données à envoyer
-        data = {
-            "bedrooms": bedrooms,
-            "bathrooms": bathrooms,
-            "sqft_living": sqft_living,
-            "sqft_lot": sqft_lot,
-            "floors": floors,
-            "waterfront": waterfront,
-            "view": view,
-            "condition": condition,
-            "sqft_above": sqft_above,
-            "sqft_basement": sqft_basement,
-            "city": city,
-            "statezip": statezip,
-            "country": "USA"
+def predict_with_direct_model(model_package, house_data):
+    """Prédiction directe avec le modèle local"""
+    try:
+        # Créer DataFrame
+        df = pd.DataFrame([house_data])
+        
+        # Feature engineering (même logique que dans api.py)
+        df['house_age'] = 2024 - 1990
+        df['is_renovated'] = 0
+        df['total_sqft'] = df['sqft_living'] + df['sqft_basement']
+        df['waterfront'] = df['waterfront'].astype(int)
+        
+        # Encoder variables catégorielles si disponible
+        if 'encoders' in model_package:
+            encoders = model_package['encoders']
+            for col, encoder in encoders.items():
+                if col in df.columns:
+                    try:
+                        df[col] = encoder.transform([df[col].iloc[0]])[0]
+                    except:
+                        df[col] = 0
+        
+        # Sélectionner features dans le bon ordre
+        feature_names = model_package['feature_names']
+        X = df[feature_names].values
+        
+        # Normaliser
+        X_scaled = model_package['scaler'].transform(X)
+        
+        # Prédiction
+        prediction = model_package['model'].predict(X_scaled)[0]
+        prediction = max(50000, float(prediction))
+        
+        return {
+            'predicted_price': prediction,
+            'model_name': model_package['model_name'],
+            'success': True
         }
         
-        with st.spinner('🤖 IA en cours de calcul...'):
-            time.sleep(1)  # Animation
-            
-            try:
-                # Appel API
-                response = requests.post("http://localhost:8000/predict", json=data, timeout=10)
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    price = result['predicted_price']
-                    
-                    # Affichage du résultat avec style
-                    st.markdown(f"""
-                    <div class="prediction-card">
-                        <h2>💰 ${price:,.0f}</h2>
-                        <p>Prix estimé</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # Métriques détaillées
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        st.metric("Prix/sqft", f"${price/sqft_living:.0f}", delta=None)
-                    with col_b:
-                        st.metric("Modèle", result['model_name'], delta=None)
-                    
-                    # Informations techniques
-                    with st.expander("📋 Détails Techniques"):
-                        st.write(f"**Temps de traitement:** {result['processing_time_ms']:.1f}ms")
-                        st.write(f"**Timestamp:** {result['timestamp']}")
-                        st.write(f"**Intervalle de confiance:**")
-                        st.write(f"  - Min: ${price*0.85:,.0f}")
-                        st.write(f"  - Max: ${price*1.15:,.0f}")
-                    
-                    # Graphique de comparaison
-                    comparable_prices = [price*0.85, price, price*1.15]
-                    labels = ['Fourchette Basse', 'Estimation', 'Fourchette Haute']
-                    
-                    fig3 = go.Figure(data=[
-                        go.Bar(x=labels, y=comparable_prices,
-                               marker_color=['#ff7675', '#667eea', '#00b894'])
-                    ])
-                    fig3.update_layout(
-                        title="Fourchette de Prix",
-                        height=300,
-                        showlegend=False
-                    )
-                    st.plotly_chart(fig3, use_container_width=True)
-                    
-                else:
-                    st.error(f"❌ Erreur API: {response.status_code}")
-                    st.write(response.text)
-                    
-            except requests.exceptions.ConnectionError:
-                st.error("🔌 Connexion à l'API impossible")
-                st.write("Assurez-vous que l'API tourne avec: `python main.py api`")
-            except Exception as e:
-                st.error(f"❌ Erreur: {e}")
-    
-    # État de l'API
-    st.markdown("### 🔧 État de l'API")
+    except Exception as e:
+        return {
+            'error': str(e),
+            'success': False
+        }
+
+def predict_with_api(house_data):
+    """Prédiction via API"""
     try:
-        health_response = requests.get("http://localhost:8000/health", timeout=5)
-        if health_response.status_code == 200:
-            st.success("✅ API Opérationnelle")
-            health_data = health_response.json()
-            st.write(f"**Status:** {health_data.get('status', 'Unknown')}")
+        response = requests.post(f"{API_URL}/predict", json=house_data, timeout=10)
+        if response.status_code == 200:
+            return response.json()
         else:
-            st.warning("⚠️ API Problème")
-    except:
-        st.error("❌ API Hors Ligne")
-        st.write("Lancez: `python main.py api`")
+            return {'error': f"API Error: {response.status_code}", 'success': False}
+    except Exception as e:
+        return {'error': str(e), 'success': False}
 
-# Footer
-st.markdown("---")
-st.markdown("""
-<div style='text-align: center; color: #666; padding: 2rem;'>
-    <h4>🏠 MLOps House Price Predictor</h4>
-    <p>Développé avec ❤️ | Streamlit + FastAPI + Scikit-Learn</p>
-    <p><strong>Instructions:</strong> Ajustez les paramètres dans la sidebar et cliquez sur 'Prédire le Prix'</p>
-</div>
-""", unsafe_allow_html=True)
-
-# Sidebar footer
-with st.sidebar:
+def main():
+    """Interface principale"""
+    
+    st.title("🏠 Prédiction de Prix Immobilier")
     st.markdown("---")
-    st.markdown("### 🚀 Actions Rapides")
     
-    if st.button("🔄 Valeurs par Défaut"):
-        st.experimental_rerun()
+    # Sidebar pour les informations
+    with st.sidebar:
+        st.header("📊 Informations")
+        
+        # Statut du modèle
+        model_package = load_direct_model()
+        if model_package:
+            st.success("✅ Modèle local chargé")
+            st.info(f"**Modèle:** {model_package.get('model_name', 'Unknown')}")
+            st.info(f"**R² Score:** {model_package.get('performance', {}).get('r2_test', 'N/A'):.3f}")
+        else:
+            st.error("❌ Modèle local non disponible")
+        
+        # Statut de l'API
+        api_available = check_api_available()
+        if api_available:
+            st.success("✅ API disponible")
+        else:
+            st.warning("⚠️ API non disponible")
+        
+        # Mode de prédiction
+        st.header("🔧 Mode de Prédiction")
+        if model_package and api_available:
+            prediction_mode = st.radio(
+                "Choisir le mode:",
+                ["Modèle Direct", "Via API", "Comparaison"]
+            )
+        elif model_package:
+            prediction_mode = "Modèle Direct"
+            st.info("Mode: Modèle Direct uniquement")
+        elif api_available:
+            prediction_mode = "Via API" 
+            st.info("Mode: API uniquement")
+        else:
+            st.error("Aucun mode disponible")
+            return
     
-    st.markdown("### 📖 Guide")
-    with st.expander("Comment utiliser"):
-        st.write("""
-        1. **Ajustez** les caractéristiques dans les sections
-        2. **Cliquez** sur 'Prédire le Prix'  
-        3. **Analysez** les résultats et graphiques
-        4. **Expérimentez** avec différentes valeurs
-        """)
+    # Interface principale
+    col1, col2 = st.columns([2, 1])
     
-    st.markdown("### 🎯 Exemples")
-    if st.button("🏠 Maison Standard"):
-        st.session_state.update({
-            'bedrooms': 3, 'bathrooms': 2.0, 'sqft_living': 1800
-        })
+    with col1:
+        st.header("🏡 Caractéristiques de la Maison")
+        
+        # Formulaire
+        with st.form("house_form"):
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                bedrooms = st.number_input("Chambres", min_value=1, max_value=10, value=3)
+                bathrooms = st.number_input("Salles de bain", min_value=1.0, max_value=8.0, value=2.0, step=0.5)
+                sqft_living = st.number_input("Surface habitable (sqft)", min_value=500, max_value=10000, value=1800)
+                sqft_lot = st.number_input("Surface terrain (sqft)", min_value=1000, max_value=50000, value=5000)
+                floors = st.number_input("Étages", min_value=1.0, max_value=4.0, value=2.0, step=0.5)
+            
+            with col_b:
+                waterfront = st.checkbox("Vue sur l'eau")
+                view = st.slider("Qualité de la vue", 0, 4, 2)
+                condition = st.slider("État de la maison", 1, 5, 3)
+                sqft_above = st.number_input("Surface au-dessus sol (sqft)", min_value=500, max_value=8000, value=1600)
+                sqft_basement = st.number_input("Surface sous-sol (sqft)", min_value=0, max_value=3000, value=200)
+            
+            city = st.text_input("Ville", value="Seattle")
+            statezip = st.text_input("État/Code postal", value="WA 98101")
+            
+            submitted = st.form_submit_button("🔮 Prédire le Prix", use_container_width=True)
     
-    if st.button("🏰 Maison Luxe"):
-        st.session_state.update({
-            'bedrooms': 5, 'bathrooms': 4.0, 'sqft_living': 4000
-        })
+    with col2:
+        st.header("💰 Résultat")
+        
+        if submitted:
+            # Préparer les données
+            house_data = {
+                'bedrooms': bedrooms,
+                'bathrooms': bathrooms,
+                'sqft_living': sqft_living,
+                'sqft_lot': sqft_lot,
+                'floors': floors,
+                'waterfront': waterfront,
+                'view': view,
+                'condition': condition,
+                'sqft_above': sqft_above,
+                'sqft_basement': sqft_basement,
+                'city': city,
+                'statezip': statezip,
+                'country': 'USA'
+            }
+            
+            # Prédictions selon le mode
+            if prediction_mode == "Modèle Direct":
+                with st.spinner("Prédiction en cours..."):
+                    result = predict_with_direct_model(model_package, house_data)
+                    
+                if result['success']:
+                    st.success(f"**${result['predicted_price']:,.0f}**")
+                    st.info(f"Modèle: {result['model_name']}")
+                else:
+                    st.error(f"Erreur: {result['error']}")
+            
+            elif prediction_mode == "Via API":
+                with st.spinner("Prédiction via API..."):
+                    result = predict_with_api(house_data)
+                    
+                if 'predicted_price' in result:
+                    st.success(f"**${result['predicted_price']:,.0f}**")
+                    st.info(f"Modèle: {result['model_name']}")
+                    st.caption(f"Temps: {result['processing_time_ms']:.1f}ms")
+                else:
+                    st.error(f"Erreur API: {result.get('error', 'Unknown')}")
+            
+            elif prediction_mode == "Comparaison":
+                col_direct, col_api = st.columns(2)
+                
+                with col_direct:
+                    st.subheader("Modèle Direct")
+                    with st.spinner("Prédiction..."):
+                        result_direct = predict_with_direct_model(model_package, house_data)
+                    
+                    if result_direct['success']:
+                        st.success(f"${result_direct['predicted_price']:,.0f}")
+                    else:
+                        st.error("Erreur")
+                
+                with col_api:
+                    st.subheader("Via API")
+                    with st.spinner("Prédiction..."):
+                        result_api = predict_with_api(house_data)
+                    
+                    if 'predicted_price' in result_api:
+                        st.success(f"${result_api['predicted_price']:,.0f}")
+                        if result_direct['success']:
+                            diff = abs(result_api['predicted_price'] - result_direct['predicted_price'])
+                            st.caption(f"Différence: ${diff:,.0f}")
+                    else:
+                        st.error("Erreur API")
+    
+    # Graphiques de démonstration
+    st.markdown("---")
+    st.header("📈 Analyse des Prix")
+    
+    if st.button("Générer Analyse Démo"):
+        # Créer des données de démonstration
+        demo_data = []
+        for i in range(50):
+            demo_data.append({
+                'sqft_living': np.random.randint(1000, 4000),
+                'price': np.random.randint(200000, 800000),
+                'bedrooms': np.random.randint(2, 5)
+            })
+        
+        df_demo = pd.DataFrame(demo_data)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            fig1 = px.scatter(df_demo, x='sqft_living', y='price', 
+                            title="Prix vs Surface habitable",
+                            labels={'sqft_living': 'Surface (sqft)', 'price': 'Prix ($)'})
+            st.plotly_chart(fig1, use_container_width=True)
+        
+        with col2:
+            fig2 = px.box(df_demo, x='bedrooms', y='price',
+                         title="Distribution des prix par chambres")
+            st.plotly_chart(fig2, use_container_width=True)
+
+if __name__ == "__main__":
+    main()
