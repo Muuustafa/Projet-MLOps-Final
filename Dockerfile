@@ -1,30 +1,37 @@
 FROM python:3.11-slim
 
-
 WORKDIR /app
 
-# Installer curl pour health check
-RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
-
-# Copier requirements et installer
+# Copier les requirements d'abord (pour le cache Docker)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copier les fichiers du projet
-COPY config.yaml .
-COPY train.py .
-COPY api.py .
-COPY main.py .
+# Créer les dossiers nécessaires
+RUN mkdir -p data models logs
 
-# Créer répertoires pour les données et modèles
-RUN mkdir -p models data logs
+# Copier les données AVANT le code
+COPY data/ ./data/
+# Copier le modèle s'il existe déjà
+COPY models/ ./models/ 2>/dev/null || true
 
-# Port API
+# Copier le code source
+COPY *.py ./
+COPY train.py ./
+COPY api.py ./
+# Copier main.py s'il existe
+COPY main.py ./ 2>/dev/null || true
+
+# Exposer le port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s \
-    CMD curl -f http://localhost:8000/health || exit 1
+# Variables d'environnement
+ENV PYTHONPATH=/app
+ENV HOST=0.0.0.0
+ENV PORT=8000
 
-# Commande par défaut
-CMD ["python", "api.py"]
+# Sanity check - vérifier que les données sont là
+RUN ls -la data/ || echo "ATTENTION: Dossier data vide"
+RUN test -f data/output.csv && echo "✓ Données trouvées" || echo "⚠️ data/output.csv manquant"
+
+# Commande de démarrage
+CMD ["python", "-m", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]

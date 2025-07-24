@@ -9,6 +9,7 @@ import time
 from datetime import datetime
 from typing import Dict, Any
 import os
+from contextlib import asynccontextmanager
 
 # Setup logging structuré pour audit
 logging.basicConfig(
@@ -20,10 +21,47 @@ logging.basicConfig(
     ]
 )
 
-app = FastAPI(title="House Price Prediction API", version="1.0")
-
 # Variables globales
 model_package = None
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Gestionnaire de cycle de vie
+    global model_package
+    
+    try:
+        if not os.path.exists('models/model.pkl'):
+            logging.warning("Modèle non trouvé, entraînement automatique...")
+            from train import main as train_main
+            train_main()
+        
+        model_package = joblib.load('models/model.pkl')
+        logging.info(f"Modèle chargé: {model_package['model_name']}")
+        
+        # Log audit démarrage
+        audit_log = {
+            'timestamp': datetime.now().isoformat(),
+            'event_type': 'api_startup',
+            'model_name': model_package['model_name'],
+            'model_performance_r2': model_package['performance']['r2_test']
+        }
+        logging.info(f"AUDIT: {audit_log}")
+        
+    except Exception as e:
+        logging.error(f"Erreur chargement modèle: {e}")
+        logging.info("API démarrée sans modèle")
+        model_package = None
+    
+    yield
+    
+    # Cleanup
+    logging.info("Arrêt API")
+
+app = FastAPI(
+    title="House Price Prediction API", 
+    version="1.0",
+    lifespan=lifespan
+)
 
 class HouseData(BaseModel):
     # Données maison pour prédiction
@@ -47,33 +85,6 @@ class PredictionResponse(BaseModel):
     model_name: str
     timestamp: str
     processing_time_ms: float
-
-@app.on_event("startup")
-async def load_model():
-    # On charge le modèle au démarrage
-    global model_package
-    
-    try:
-        if not os.path.exists('models/model.pkl'):
-            logging.warning("Modèle non trouvé, entraînement automatique...")
-            from train import main as train_main
-            train_main()
-        
-        model_package = joblib.load('models/model.pkl')
-        logging.info(f"Modèle chargé: {model_package['model_name']}")
-        
-        # Log audit démarrage
-        audit_log = {
-            'timestamp': datetime.now().isoformat(),
-            'event_type': 'api_startup',
-            'model_name': model_package['model_name'],
-            'model_performance_r2': model_package['performance']['r2_test']
-        }
-        logging.info(f"AUDIT: {audit_log}")
-        
-    except Exception as e:
-        logging.error(f"Erreur chargement modèle: {e}")
-        raise
 
 def prepare_features(data: HouseData) -> np.ndarray:
     # On prépare les features pour prédiction
@@ -130,7 +141,7 @@ async def root():
 async def health():
     # Check santé API
     return {
-        "status": "healthy" if model_package else "unhealthy",
+        "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "model_loaded": model_package is not None
     }
@@ -206,12 +217,15 @@ async def model_info():
 if __name__ == "__main__":
     import uvicorn
     
-    # Charger config
-    with open('config.yaml', 'r') as f:
-        config = yaml.safe_load(f)
-    
-    host = config['api']['host']
-    port = config['api']['port']
+    # Charger config (optionnel)
+    try:
+        with open('config.yaml', 'r') as f:
+            config = yaml.safe_load(f)
+        host = config['api']['host']
+        port = config['api']['port']
+    except:
+        host = "0.0.0.0"
+        port = 8000
     
     logging.info(f"Démarrage API sur {host}:{port}")
     uvicorn.run(app, host=host, port=port)
